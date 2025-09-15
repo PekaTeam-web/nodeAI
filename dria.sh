@@ -20,10 +20,10 @@ NEED_UPDATE=false
 install_if_missing() {
   PKG=$1
   CMD=$2
-  if ! command -v $CMD &>/dev/null; then
+  if ! command -v "$CMD" &>/dev/null; then
     echo "📥 Installing $PKG..."
     NEED_UPDATE=true
-    sudo apt install -y $PKG
+    sudo apt install -y "$PKG"
   else
     echo "✅ $PKG already installed."
   fi
@@ -160,21 +160,21 @@ console.log(`Generated ${count} wallet(s) saved in wallets.json`);
 EOF
 
 ### 5. Wallet Handling
-cd "$HOME/dria-nodes"
 mkdir -p "$HOME/dria-nodes"
+cd "$HOME/dria-nodes"
 
 echo "💰 Wallet setup options:"
 echo "1) Generate new wallet(s)"
 echo "2) Use existing wallet.json"
-read -p "Choose option [1/2]: " WALLET_OPTION
+read -r -p "Choose option [1/2]: " WALLET_OPTION
 
 if [ "$WALLET_OPTION" == "1" ]; then
-  read -p "🤔 How many wallets do you want to generate? " WALLET_COUNT
+  read -r -p "🤔 How many wallets do you want to generate? " WALLET_COUNT
   cd "$HOME/crypto-generator"
   node crypto-generator.js "$WALLET_COUNT"
   WALLET_FILE="$HOME/crypto-generator/wallets.json"
 elif [ "$WALLET_OPTION" == "2" ]; then
-  read -p "📂 Enter path to your wallet.json: " WALLET_FILE
+  read -r -p "📂 Enter path to your wallet.json: " WALLET_FILE
   WALLET_FILE="${WALLET_FILE/#\~/$HOME}" # expand ~
   if [ ! -f "$WALLET_FILE" ]; then
     echo "❌ File not found: $WALLET_FILE"
@@ -199,14 +199,14 @@ else
 fi
 
 ### 7. Nodes per wallet
-read -p "⚡ How many nodes should run per wallet? " NODES_PER_WALLET
+read -r -p "⚡ How many nodes should run per wallet? " NODES_PER_WALLET
 if ! [[ "$NODES_PER_WALLET" =~ ^[0-9]+$ ]] || [ "$NODES_PER_WALLET" -lt 1 ]; then
   echo "❌ Invalid number."
   exit 1
 fi
 
 ### 8. Generate docker-compose per wallet
-WALLETS=$(cat "$WALLET_FILE" | jq -c '.[]')
+WALLETS=$(jq -c '.[]' "$WALLET_FILE")
 i=1
 for row in $WALLETS; do
   ADDR=$(echo "$row" | jq -r '.address')
@@ -215,7 +215,7 @@ for row in $WALLETS; do
   mkdir -p "$NODE_DIR"
 
   echo "services:" > "$NODE_DIR/docker-compose.yml"
-  for n in $(seq 1 $NODES_PER_WALLET); do
+  for n in $(seq 1 "$NODES_PER_WALLET"); do
     cat >> "$NODE_DIR/docker-compose.yml" <<EOF
   compute_node_${i}_${n}:
     image: "firstbatch/dkn-compute-node:latest"
