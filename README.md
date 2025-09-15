@@ -1,202 +1,140 @@
-# 🧩 Dria Nodes Setup Script
+# DKN × Vikey Proxy Starter
 
-**File:** `dria.sh`
-**Repo:** [ai-nodes-setup](https://github.com/direkturcrypto/ai-nodes-setup)
-**Credits:** powered by **direkturcrypto** 🙏
+Jalankan Dria Compute Node (DKN) tanpa Ollama lokal. DKN akan “mengira” berbicara ke Ollama, tetapi request dialihkan oleh proxy ke API Vikey (OpenAI-style). Ini mengatasi perbedaan penamaan model:
+- DKN (Ollama-style): `llama3.3:70b-instruct-q4_K_M`
+- Vikey (OpenAI-style): `llama-3.3-70b-instruct`
 
-This script automates the installation and setup of:
+Proxy memetakan nama model tersebut lewat `MODEL_MAP`.
 
-* Docker & Docker Compose 🐳
-* Node.js, npm, pm2 📦
-* Vikey Inference 🔑
-* EVM crypto wallets 💰
-* Dria nodes ⚡ (configurable nodes per wallet)
+## Arsitektur Singkat
+DKN Compute Node → (Ollama API) → Proxy (host:14441) → (OpenAI API) → Vikey
 
----
+## Prasyarat VPS
+- Ubuntu 22.04/24.04 (sudo)
+- VIKEY_API_KEY siap
+- EVM Private Key (untuk `DKN_WALLET_SECRET_KEY`)
+- Docker Engine + Docker Compose plugin
+- Node.js 20 LTS + PM2
 
-## 🔧 Prerequisites
+## Instalasi Ringkas di VPS Baru
 
-* Ubuntu/Debian-based Linux machine
-* `sudo` access
-* Internet connection
-* Valid `VIKEY_API_KEY` from [Vikey API](https://api.vikey.ai)
-
-### Prerequisites Check
-
-Before running the script, verify you have the basic requirements:
-
+1) Update OS dan paket pendukung
 ```bash
-# Check if you have sudo access
-sudo -l
-
-# Check internet connectivity
-ping -c1 google.com
-
-# Check if you're on a compatible system
-lsb_release -a
+sudo apt-get update -y
+sudo apt-get install -y curl git jq ca-certificates gnupg lsb-release netcat-openbsd
 ```
 
----
-
-## 📥 Installation
-
-Clone the repository:
-
+2) Pasang Node.js LTS 20.x + PM2
 ```bash
-git clone https://github.com/direkturcrypto/ai-nodes-setup
-cd ai-nodes-setup
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+sudo npm i -g pm2
 ```
 
-Make the script executable:
-
+3) Pasang Docker + Compose plugin
 ```bash
-chmod +x dria.sh
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+# Re-login sesi shell/SSH agar grup docker aktif
 ```
 
----
-
-## 🚀 Usage
-
-Run the setup script:
-
+4) Clone repo dan siapkan proxy
 ```bash
-./dria.sh
+git clone <URL_REPO_KAMU> dkn-vikey-proxy-starter
+cd dkn-vikey-proxy-starter/proxy
+cp .env.example .env
+# Edit .env → isi VIKEY_API_KEY dan mapping MODEL_MAP
+npm install
+pm2 start index.js --name ollama2vikey
+pm2 save
+# Tes:
+curl -s http://localhost:14441/health | jq
+curl -s http://localhost:14441/api/tags | jq
 ```
 
-### During setup you will be asked:
-
-1. **Enter your `VIKEY_API_KEY`** 🔐
-   This key will be saved in the Vikey `.env` file.
-
-2. **Choose wallet option** 💰
-   - Option 1: Generate new wallets
-   - Option 2: Use existing wallet.json file
-
-3. **How many wallets to generate** (if option 1)
-   Example: if you enter `5`, it will generate **5 wallets**.
-
-4. **How many nodes per wallet**
-   Example: if you enter `3`, each wallet will run **3 Dria nodes**.
-
----
-
-## 📂 What Gets Created
-
-* `~/vikey-inference/` → Vikey inference server + `.env`
-* `~/crypto-generator/wallets.json` → Generated wallets (address & private key)
-* `~/dria-nodes/dria-node-<wallet_address>/docker-compose.yml` → Node configs (multiple nodes per wallet)
-* `~/dria-nodes/manage-dria.sh` → Helper script to manage Dria nodes
-
----
-
-## ⚡ Managing Dria Nodes
-
-After setup, use the helper script:
-
-### Start all nodes
-
+5) Siapkan network Docker untuk node
 ```bash
-cd ~/dria-nodes
-./manage-dria.sh start
+docker network create dria-nodes || true
 ```
 
-✅ Brings up all Dria nodes in the background.
-
-### Restart all nodes
-
+6) Siapkan ENV untuk DKN
 ```bash
-cd ~/dria-nodes
-./manage-dria.sh restart
+cd ..
+cp .env.example .env
+# Edit .env → isi DKN_WALLET_SECRET_KEY (jangan commit)
+# DKN_MODELS boleh tetap default: llama3.3:70b-instruct-q4_K_M
 ```
 
-♻️ Restarts all running nodes.
-
----
-
-## 🔍 Verify Vikey
-
-Run:
-
+7) Jalankan Compute Node
 ```bash
-curl http://localhost:14441
+docker compose up -d
+docker compose logs -f
 ```
 
-Expected response:
+Jika lancar, DKN akan konek ke jaringan dan memakai proxy untuk inferensi Vikey.
 
-```json
-{"error":"Endpoint not supported"}
-```
+## Konfigurasi
 
-This confirms Vikey is running correctly.
+- `proxy/.env`
+  - `VIKEY_API_KEY`: API key Vikey kamu.
+  - `PORT`: Port proxy (default 14441).
+  - `MODEL_MAP`: JSON pemetaan nama “Ollama-style” → “Vikey-style”.
+    - Contoh: `{"llama3.3:70b-instruct-q4_K_M":"llama-3.3-70b-instruct"}`
+- Root `.env`
+  - `DKN_WALLET_SECRET_KEY`: Private key EVM (format 0x...).
+  - `DKN_MODELS`: Daftar model untuk DKN, pisah koma. Pastikan semua ada di `MODEL_MAP` proxy.
+    - Contoh: `llama3.3:70b-instruct-q4_K_M`
 
----
+Compose sudah set:
+- `OLLAMA_HOST=http://host.docker.internal`
+- `OLLAMA_PORT=14441`
+- `OLLAMA_AUTO_PULL=false`
+- `extra_hosts: host.docker.internal:host-gateway` agar container bisa akses proxy di host.
 
-## 🪵 Logs
+## Tambah Model
+- Tambahkan entry ke `proxy/.env` pada `MODEL_MAP`, contoh:
+  ```
+  MODEL_MAP={"llama3.3:70b-instruct-q4_K_M":"llama-3.3-70b-instruct","llama3.1:8b-instruct-q4_K_M":"llama-3.1-8b-instruct"}
+  ```
+- Restart proxy:
+  ```bash
+  pm2 restart ollama2vikey
+  ```
+- Tambahkan ke `DKN_MODELS` di root `.env` dan restart container:
+  ```bash
+  docker compose down && docker compose up -d
+  ```
 
-To check Vikey logs:
+## Troubleshooting
+- Proxy hidup?
+  - `curl http://localhost:14441/health`
+  - `pm2 logs ollama2vikey`
+- Container bisa akses proxy?
+  - `docker exec -it <cid> sh -lc 'apk add --no-cache curl || (apt-get update && apt-get install -y curl); curl -s http://host.docker.internal:14441/api/tags'`
+- "Model not found" di DKN:
+  - Pastikan nama di `DKN_MODELS` ada di `MODEL_MAP` dan ID Vikey benar.
+- 401/403 dari Vikey:
+  - Cek `VIKEY_API_KEY` pada `proxy/.env`.
 
-```bash
-tail -f ~/vikey-inference/vikey.log
-```
+## Keamanan
+- Jangan commit file `.env` (root dan proxy).
+- Simpan `DKN_WALLET_SECRET_KEY` dengan aman. Gunakan pengaturan permission ketat pada server.
 
-To check Dria node logs:
+## Buat Repo di GitHub
+- Via UI: buat repo kosong, lalu:
+  ```bash
+  cd dkn-vikey-proxy-starter
+  git init
+  git add .
+  git commit -m "Initial commit: DKN × Vikey proxy starter"
+  git branch -M main
+  git remote add origin https://github.com/PekaTeam-web/dkn-vikey-proxy-starter.git
+  git push -u origin main
+  ```
+- Via GitHub CLI:
+  ```bash
+  gh repo create PekaTeam-web/dkn-vikey-proxy-starter --public --source=. --remote=origin --push
+  ```
 
-```bash
-cd ~/dria-nodes/dria-node-<WALLET_ADDRESS>
-docker-compose logs -f
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**1. Permission denied errors**
-```bash
-sudo usermod -aG docker $USER
-# Log out and log back in
-```
-
-**2. Vikey not responding**
-```bash
-# Check if Vikey is running
-ps aux | grep vikey
-# Restart Vikey if needed
-cd ~/vikey-inference
-./vikey-inference-linux &
-```
-
-**3. Docker network issues**
-```bash
-# Recreate the network
-docker network rm dria-nodes
-docker network create --subnet=10.172.0.0/16 dria-nodes
-```
-
-**4. Node not starting**
-```bash
-# Check Docker logs
-cd ~/dria-nodes/dria-node-<WALLET_ADDRESS>
-docker-compose logs
-```
-
-### Verification Commands
-
-**Check all services are running:**
-```bash
-# Vikey status
-curl -s http://localhost:14441 | jq .
-
-# Docker containers
-docker ps | grep dkn-compute-node
-
-# Network status
-docker network ls | grep dria-nodes
-```
-
----
-
-## 🙏 Credits
-
-This setup is proudly **powered by direkturcrypto**.
+Butuh aku yang push file ini langsung ke repo (nama apa, public/private)? Bilang ya.
